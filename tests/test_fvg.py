@@ -1,0 +1,77 @@
+import unittest
+
+from strategy.fvg import detect_fvgs
+from tests.util import make_candles
+
+BULLISH_BASE = [
+    (100, 101, 99, 100),  # 0 filler
+    (100, 102, 99, 101),  # 1 c1: high=102
+    (101, 112, 100, 111),  # 2 c2: impulsive bull candle, closes at 111 (> gap_high=105)
+    (106, 112, 105, 111),  # 3 c3: low=105 -> gap [102, 105]
+    (111, 113, 106, 112),  # 4 filler
+]
+
+BEARISH_BASE = [
+    (100, 101, 99, 100),  # 0 filler
+    (106, 108, 105, 106),  # 1 c1: low=105
+    (105, 106, 95, 96),  # 2 c2: impulsive bear candle, closes at 96 (< gap_low=100)
+    (97, 100, 94, 95),  # 3 c3: high=100 -> gap [100, 105]
+    (95, 96, 90, 91),  # 4 filler
+]
+
+
+class TestDetectFvgsBullish(unittest.TestCase):
+    def test_valid_bullish_fvg_detected(self):
+        candles = make_candles(BULLISH_BASE)
+        zones = detect_fvgs(candles, "bullish", "15m")
+        self.assertEqual(len(zones), 1)
+        zone = zones[0]
+        self.assertEqual(zone.start_idx, 1)
+        self.assertEqual(zone.end_idx, 3)
+        self.assertEqual(zone.low, 102)
+        self.assertEqual(zone.high, 105)
+        self.assertEqual(zone.direction, "bullish")
+        self.assertEqual(zone.timeframe, "15m")
+
+    def test_wrong_color_middle_candle_rejected(self):
+        candles = list(BULLISH_BASE)
+        candles[2] = (111, 112, 100, 101)  # bearish instead of bullish
+        zones = detect_fvgs(make_candles(candles), "bullish", "15m")
+        self.assertEqual(zones, [])
+
+    def test_middle_candle_close_does_not_extend_past_gap(self):
+        candles = list(BULLISH_BASE)
+        candles[2] = (101, 112, 100, 104)  # close=104, inside the gap, not beyond gap_high=105
+        zones = detect_fvgs(make_candles(candles), "bullish", "15m")
+        self.assertEqual(zones, [])
+
+    def test_no_price_gap_rejected(self):
+        candles = list(BULLISH_BASE)
+        candles[3] = (95, 112, 94, 111)  # low=94, overlaps c1.high=102
+        zones = detect_fvgs(make_candles(candles), "bullish", "15m")
+        self.assertEqual(zones, [])
+
+
+class TestDetectFvgsBearish(unittest.TestCase):
+    def test_valid_bearish_fvg_detected(self):
+        candles = make_candles(BEARISH_BASE)
+        zones = detect_fvgs(candles, "bearish", "15m")
+        self.assertEqual(len(zones), 1)
+        zone = zones[0]
+        self.assertEqual(zone.start_idx, 1)
+        self.assertEqual(zone.end_idx, 3)
+        self.assertEqual(zone.low, 100)
+        self.assertEqual(zone.high, 105)
+        self.assertEqual(zone.direction, "bearish")
+        self.assertEqual(zone.timeframe, "15m")
+
+
+class TestDetectFvgsInvalidDirection(unittest.TestCase):
+    def test_invalid_direction_raises(self):
+        candles = make_candles(BULLISH_BASE)
+        with self.assertRaises(ValueError):
+            detect_fvgs(candles, "sideways", "15m")
+
+
+if __name__ == "__main__":
+    unittest.main()
