@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from run_cli import DEFAULTS, load_config, resolve_direction, save_config
+from run_cli import DEFAULTS, load_config, parse_args, resolve_direction, save_config
 
 
 class TestResolveDirection(unittest.TestCase):
@@ -16,6 +16,22 @@ class TestResolveDirection(unittest.TestCase):
     def test_invalid_direction_exits(self):
         with self.assertRaises(SystemExit):
             resolve_direction(["sideways"])
+
+    def test_missing_direction_without_check_api_exits(self):
+        with self.assertRaises(SystemExit):
+            resolve_direction([])
+
+
+class TestCheckApiFlag(unittest.TestCase):
+    def test_check_api_makes_direction_optional(self):
+        args = parse_args(["--check-api"])
+        self.assertTrue(args.check_api)
+        self.assertIsNone(args.direction)
+
+    def test_check_api_can_still_be_combined_with_direction(self):
+        args = parse_args(["bullish", "--check-api"])
+        self.assertTrue(args.check_api)
+        self.assertEqual(args.direction, "bullish")
 
 
 class TestConfigRoundTrip(unittest.TestCase):

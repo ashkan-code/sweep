@@ -37,6 +37,29 @@ class DataProviderError(Exception):
     or a response shape that doesn't match the configured field map."""
 
 
+_MISSING = object()
+
+
+def _resolve_field(raw, candidates, default=_MISSING):
+    """Look up a field on `raw` (a dict, or a list/tuple for positional
+    array-style rows) trying each of `candidates` in order (a single
+    name/index is also accepted). Returns `default` if given and
+    nothing matched; otherwise raises KeyError."""
+    if not isinstance(candidates, (list, tuple)):
+        candidates = [candidates]
+    if isinstance(raw, dict):
+        for key in candidates:
+            if key in raw:
+                return raw[key]
+    elif isinstance(raw, (list, tuple)):
+        for idx in candidates:
+            if isinstance(idx, int) and -len(raw) <= idx < len(raw):
+                return raw[idx]
+    if default is not _MISSING:
+        return default
+    raise KeyError(candidates)
+
+
 @dataclass(frozen=True)
 class Candle:
     index: int
@@ -138,6 +161,7 @@ class MarketDataProvider:
 
     def get_top_symbols(self, limit=200):
         params = {self._config.get("symbols_limit_param_name", "limit"): limit}
+        params.update(self._config.get("symbols_extra_params", {}))
         response = _request_with_retry(
             self._session, "GET", self._symbols_url, params, self._config
         )
@@ -147,7 +171,11 @@ class MarketDataProvider:
         if not isinstance(data, list):
             raise DataProviderError("unexpected symbols response shape: expected a list")
         field = self._config.get("symbol_field_name", "symbol")
-        symbols = [item[field] for item in data if field in item]
+        symbols = []
+        for item in data:
+            value = _resolve_field(item, field, default=None)
+            if value is not None:
+                symbols.append(value)
         return symbols[:limit]
 
     def get_candles(self, symbol, timeframe, lookback):
@@ -167,6 +195,7 @@ class MarketDataProvider:
                 self._config.get("timeframe_param_name", "interval"): interval,
                 self._config.get("candles_limit_param_name", "limit"): per_request,
             }
+            params.update(self._config.get("candles_extra_params", {}))
             if cursor is not None:
                 params[self._config.get("pagination_cursor_param_name", "end_time")] = cursor
             response = _request_with_retry(
@@ -207,14 +236,42 @@ class MarketDataProvider:
                 candles.append(
                     Candle(
                         index=0,
-                        timestamp=int(raw[field_map["timestamp"]]),
-                        open=float(raw[field_map["open"]]),
-                        high=float(raw[field_map["high"]]),
-                        low=float(raw[field_map["low"]]),
-                        close=float(raw[field_map["close"]]),
-                        volume=float(raw.get(field_map["volume"], 0.0)),
+                        timestamp=int(_resolve_field(raw, field_map["timestamp"])),
+                        open=float(_resolve_field(raw, field_map["open"])),
+                        high=float(_resolve_field(raw, field_map["high"])),
+                        low=float(_resolve_field(raw, field_map["low"])),
+                        close=float(_resolve_field(raw, field_map["close"])),
+                        volume=float(_resolve_field(raw, field_map["volume"], default=0.0)),
                     )
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise DataProviderError("could not parse a candle entry: %s" % exc) from exc
         return candles
+
+    def get_raw_symbols_response(self):
+        """Diagnostic: return the exact parsed JSON body from the symbols
+        endpoint, with no field-mapping/shape validation applied."""
+        params = dict(self._config.get("symbols_extra_params", {}))
+        params[self._config.get("symbols_limit_param_name", "limit")] = self._config.get(
+            "top_symbols_limit", 200
+        )
+        response = _request_with_retry(
+            self._session, "GET", self._symbols_url, params, self._config
+        )
+        return response.json()
+
+    def get_raw_candles_response(self, symbol, timeframe, limit=5):
+        """Diagnostic: return the exact parsed JSON body from a single
+        candles request, with no field-mapping/shape validation applied
+        and no pagination."""
+        interval = self._config.get("timeframe_value_map", {}).get(timeframe, timeframe)
+        params = {
+            self._config.get("symbol_param_name", "symbol"): symbol,
+            self._config.get("timeframe_param_name", "interval"): interval,
+            self._config.get("candles_limit_param_name", "limit"): limit,
+        }
+        params.update(self._config.get("candles_extra_params", {}))
+        response = _request_with_retry(
+            self._session, "GET", self._candles_url, params, self._config
+        )
+        return response.json()

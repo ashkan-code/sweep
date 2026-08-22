@@ -27,6 +27,8 @@ DEFAULTS = {
     "candles_limit_param_name": "limit",
     "symbols_response_list_key": "data",
     "symbol_field_name": "symbol",
+    "symbols_extra_params": {},
+    "candles_extra_params": {},
     "candles_response_list_key": "data",
     "candle_field_map": {
         "timestamp": "timestamp",
@@ -56,6 +58,8 @@ DEFAULTS = {
     "stop_loss_buffer_mode": "percent",
     "stop_loss_buffer_value": 0.1,
     "bot_cooldown_seconds": 180,
+    "check_api_symbol": "",
+    "check_api_timeframe": "5m",
 }
 
 
@@ -79,9 +83,17 @@ def save_config(config, path=None):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run one multi-timeframe SMC scan and print results.")
-    parser.add_argument("direction", choices=["bullish", "bearish"])
+    parser.add_argument("direction", nargs="?", choices=["bullish", "bearish"], default=None)
     parser.add_argument("--config", default=None, help="Path to config.json (default: ./config.json)")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--check-api",
+        action="store_true",
+        help="Dump raw symbols/candles endpoint responses for diagnosing config, then exit.",
+    )
+    args = parser.parse_args(argv)
+    if not args.check_api and args.direction is None:
+        parser.error("direction is required unless --check-api is given")
+    return args
 
 
 def resolve_direction(argv=None):
@@ -97,6 +109,40 @@ def _run_wake_lock_command(name):
         pass  # not running under Termux; harmless no-op elsewhere
 
 
+def run_check_api(provider, config):
+    """Dump raw endpoint responses so config/field-mapping mismatches
+    can be diagnosed without going through (and being blocked by) the
+    normal parsing path."""
+    print("=== symbols endpoint ===")
+    try:
+        print(provider.get_raw_symbols_response())
+    except DataProviderError as exc:
+        print("ERROR: %s" % exc)
+    print()
+
+    symbol = config.get("check_api_symbol", "")
+    if not symbol:
+        try:
+            symbols = provider.get_top_symbols(limit=1)
+            symbol = symbols[0] if symbols else ""
+        except DataProviderError:
+            symbol = ""
+
+    timeframe = config.get("check_api_timeframe", "5m")
+    print("=== candles endpoint (symbol=%r timeframe=%s) ===" % (symbol, timeframe))
+    if not symbol:
+        print(
+            "No symbol available to test (parsing the symbols response "
+            "failed and no check_api_symbol is configured) -- set "
+            "check_api_symbol in config.json and re-run."
+        )
+        return
+    try:
+        print(provider.get_raw_candles_response(symbol, timeframe, limit=5))
+    except DataProviderError as exc:
+        print("ERROR: %s" % exc)
+
+
 def main(argv=None):
     args = parse_args(argv)
     config = load_config(args.config)
@@ -104,6 +150,9 @@ def main(argv=None):
     _run_wake_lock_command("termux-wake-lock")
     try:
         provider = MarketDataProvider(config)
+        if args.check_api:
+            run_check_api(provider, config)
+            return 0
         try:
             results = engine.run_scan(args.direction, provider, config)
         except DataProviderError as exc:

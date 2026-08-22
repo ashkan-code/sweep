@@ -147,5 +147,186 @@ class TestMarketDataProviderCandles(unittest.TestCase):
         self.assertEqual([c.index for c in candles], [0, 1, 2, 3, 4])
 
 
+class TestListShapedCandles(unittest.TestCase):
+    """Some backends return candles as positional arrays instead of
+    objects; the field map can then use integer indices."""
+
+    def test_integer_index_field_map(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candle_field_map": {
+                "timestamp": 0, "open": 1, "high": 2, "low": 3, "close": 4, "volume": 5,
+            },
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        raw = [
+            [1000, 10, 12, 9, 11, 500],
+            [2000, 11, 13, 10, 12, 600],
+        ]
+        provider._session = _FakeSession([(200, {"data": raw})])
+
+        candles = provider.get_candles("SYMBOL-1", "15m", lookback=2)
+
+        self.assertEqual([c.timestamp for c in candles], [1000, 2000])
+        self.assertEqual(candles[0].open, 10)
+        self.assertEqual(candles[0].volume, 500)
+
+    def test_row_missing_volume_index_defaults_to_zero(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candle_field_map": {
+                "timestamp": 0, "open": 1, "high": 2, "low": 3, "close": 4, "volume": 5,
+            },
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        raw = [[1000, 10, 12, 9, 11]]  # no volume element at all
+        provider._session = _FakeSession([(200, {"data": raw})])
+
+        candles = provider.get_candles("SYMBOL-1", "15m", lookback=1)
+
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(candles[0].volume, 0.0)
+
+
+class TestMultiCandidateFieldNames(unittest.TestCase):
+    def test_candle_field_map_tries_candidates_in_order(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candle_field_map": {
+                "timestamp": ["ts", "time", "t"],
+                "open": ["open", "o"],
+                "high": ["high", "h"],
+                "low": ["low", "l"],
+                "close": ["close", "c"],
+                "volume": ["baseVol", "vol", "volume", "b"],
+            },
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        # Only the last-listed candidate is present for each field.
+        raw = [{"t": 1000, "o": 10, "h": 12, "l": 9, "c": 11, "vol": 500}]
+        provider._session = _FakeSession([(200, {"data": raw})])
+
+        candles = provider.get_candles("SYMBOL-1", "15m", lookback=1)
+
+        self.assertEqual(candles[0].timestamp, 1000)
+        self.assertEqual(candles[0].open, 10)
+        self.assertEqual(candles[0].volume, 500)
+
+    def test_candle_field_map_prefers_earlier_candidate(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candle_field_map": {
+                "timestamp": ["ts", "t"], "open": "open", "high": "high",
+                "low": "low", "close": "close", "volume": "volume",
+            },
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        raw = [{"ts": 1000, "t": 9999, "open": 10, "high": 12, "low": 9, "close": 11, "volume": 1}]
+        provider._session = _FakeSession([(200, {"data": raw})])
+
+        candles = provider.get_candles("SYMBOL-1", "15m", lookback=1)
+
+        self.assertEqual(candles[0].timestamp, 1000)  # "ts" wins over "t"
+
+    def test_symbol_field_name_tries_candidates(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "symbol_field_name": ["symbol", "symbolName"],
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        provider._session = _FakeSession([(200, {"data": [{"symbolName": "SYMBOL-1"}]})])
+
+        self.assertEqual(provider.get_top_symbols(limit=200), ["SYMBOL-1"])
+
+    def test_symbol_field_name_prefers_earlier_candidate(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "symbol_field_name": ["symbol", "symbolName"],
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        provider._session = _FakeSession(
+            [(200, {"data": [{"symbol": "SYMBOL-1", "symbolName": "SYMBOL-WRONG"}]})]
+        )
+
+        self.assertEqual(provider.get_top_symbols(limit=200), ["SYMBOL-1"])
+
+
+class TestExtraStaticParams(unittest.TestCase):
+    def test_symbols_extra_params_are_sent(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "symbols_extra_params": {"category": "linear"},
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        fake_session = _FakeSession([(200, {"data": [{"symbol": "SYMBOL-1"}]})])
+        provider._session = fake_session
+
+        provider.get_top_symbols(limit=200)
+
+        params = fake_session.calls_log[0][2]
+        self.assertEqual(params["category"], "linear")
+        self.assertEqual(params["limit"], 200)
+
+    def test_candles_extra_params_are_sent(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candles_extra_params": {"type": "futures"},
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        raw = [{"timestamp": 1000, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 1}]
+        fake_session = _FakeSession([(200, {"data": raw})])
+        provider._session = fake_session
+
+        provider.get_candles("SYMBOL-1", "15m", lookback=1)
+
+        params = fake_session.calls_log[0][2]
+        self.assertEqual(params["type"], "futures")
+        self.assertEqual(params["symbol"], "SYMBOL-1")
+
+
+class TestRawDiagnosticMethods(unittest.TestCase):
+    def test_get_raw_symbols_response_returns_exact_payload(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "symbols_extra_params": {"category": "linear"},
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        payload = {"data": [{"symbol": "SYMBOL-1"}], "extra": "field"}
+        fake_session = _FakeSession([(200, payload)])
+        provider._session = fake_session
+
+        result = provider.get_raw_symbols_response()
+
+        self.assertEqual(result, payload)
+        self.assertEqual(fake_session.calls_log[0][2]["category"], "linear")
+
+    def test_get_raw_candles_response_returns_exact_payload(self):
+        config = {
+            "base_url": "http://fake.invalid",
+            "candles_extra_params": {"type": "futures"},
+            **RETRY_CONFIG,
+        }
+        provider = MarketDataProvider(config)
+        payload = {"data": [{"anything": "goes"}], "note": "unparsed"}
+        fake_session = _FakeSession([(200, payload)])
+        provider._session = fake_session
+
+        result = provider.get_raw_candles_response("SYMBOL-1", "15m", limit=5)
+
+        self.assertEqual(result, payload)
+        params = fake_session.calls_log[0][2]
+        self.assertEqual(params["symbol"], "SYMBOL-1")
+        self.assertEqual(params["type"], "futures")
+
+
 if __name__ == "__main__":
     unittest.main()

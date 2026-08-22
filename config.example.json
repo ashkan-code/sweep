@@ -11,6 +11,8 @@
   "candles_limit_param_name": "limit",
   "symbols_response_list_key": "data",
   "symbol_field_name": "symbol",
+  "symbols_extra_params": {},
+  "candles_extra_params": {},
   "candles_response_list_key": "data",
   "candle_field_map": {
     "timestamp": "timestamp",
@@ -39,5 +41,7 @@
   "momentum_body_ratio": 0.70,
   "stop_loss_buffer_mode": "percent",
   "stop_loss_buffer_value": 0.1,
-  "bot_cooldown_seconds": 180
+  "bot_cooldown_seconds": 180,
+  "check_api_symbol": "",
+  "check_api_timeframe": "5m"
 }

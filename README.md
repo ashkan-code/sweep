@@ -48,12 +48,37 @@ Edit `config.json` and fill in `base_url` (and `api_key` if your data
 source needs one) plus any endpoint/field-name overrides your backend
 requires. `config.json` is gitignored — it never gets committed.
 
+A field name in `symbol_field_name` or any `candle_field_map` entry can
+be a single name/index or a list of candidates tried in order (e.g.
+`["ts", "time", "t"]`) — useful when a backend's field naming isn't
+fully pinned down yet. `symbols_extra_params` / `candles_extra_params`
+let you send fixed extra query parameters beyond the ones this code
+already sets. A raw candle can also be a positional array instead of an
+object — use integer indices in `candle_field_map` for that case.
+
+**A note on confidence**: values copied from another project's own
+best-effort guess are still a guess, not a verified integration, until
+something actually confirms them against a live response. Run
+`--check-api` (below) before trusting a new config for real signals.
+
 ## Running
 
 ```
 python run_cli.py bullish
 python run_cli.py bearish
 ```
+
+### Diagnosing a config
+
+```
+python run_cli.py --check-api
+```
+
+Dumps the raw, unparsed JSON from the symbols endpoint and (using
+`check_api_symbol`/`check_api_timeframe` from config, or the first
+symbol returned live if those are left blank) the candles endpoint, so
+endpoint/parameter/field-name mismatches can be diagnosed directly from
+real output instead of guessed at.
 
 Each run wraps the scan in `termux-wake-lock` / `termux-wake-unlock`
 automatically (a harmless no-op outside Termux) so a long scan across
