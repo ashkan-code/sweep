@@ -75,7 +75,7 @@ def _check_trend_one(provider, symbol, timeframe, direction, config):
     except DataProviderError:
         return symbol, False
     found = swings.find_swings(candles, config.get("swing_lookback", swings.DEFAULT_SWING_LOOKBACK))
-    result = trend_module.classify_trend(found, timeframe)
+    result = trend_module.classify_trend(found, candles, timeframe, config)
     return symbol, result.direction == direction
 
 
