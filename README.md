@@ -64,6 +64,20 @@ something actually confirms them against a live response. Run
 ## Running
 
 ```
+python run_cli.py
+```
+
+With no direction given, it asks interactively:
+
+```
+Long? y/n:
+```
+
+`y`/`Y` runs the bullish scan, `n`/`N` runs the bearish scan; anything
+else re-asks instead of crashing. The direction can still be passed
+explicitly (useful for scripting/automation), which skips the prompt:
+
+```
 python run_cli.py bullish
 python run_cli.py bearish
 ```

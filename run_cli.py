@@ -90,16 +90,37 @@ def parse_args(argv=None):
         action="store_true",
         help="Dump raw symbols/candles endpoint responses for diagnosing config, then exit.",
     )
-    args = parser.parse_args(argv)
-    if not args.check_api and args.direction is None:
-        parser.error("direction is required unless --check-api is given")
-    return args
+    return parser.parse_args(argv)
+
+
+def prompt_direction():
+    """Ask interactively until the user answers y/n (case-insensitive),
+    re-asking on anything else instead of crashing."""
+    while True:
+        answer = input("Long? y/n: ").strip().lower()
+        if answer == "y":
+            return "bullish"
+        if answer == "n":
+            return "bearish"
+
+
+def _direction_from_args(args):
+    """Explicit CLI direction always wins (and skips the prompt, so
+    scripting/automation and --check-api workflows are unaffected). Only
+    when no direction was given on the command line -- and --check-api
+    wasn't given either -- do we ask interactively."""
+    if args.direction is not None:
+        return args.direction
+    if args.check_api:
+        return None
+    return prompt_direction()
 
 
 def resolve_direction(argv=None):
-    """Pure, testable wrapper around parse_args -- returns just the
-    validated direction string."""
-    return parse_args(argv).direction
+    """Pure, testable wrapper around parse_args + _direction_from_args --
+    returns just the resolved direction string (or None for --check-api
+    with no explicit direction)."""
+    return _direction_from_args(parse_args(argv))
 
 
 def _run_wake_lock_command(name):
@@ -153,8 +174,9 @@ def main(argv=None):
         if args.check_api:
             run_check_api(provider, config)
             return 0
+        direction = _direction_from_args(args)
         try:
-            results = engine.run_scan(args.direction, provider, config)
+            results = engine.run_scan(direction, provider, config)
         except DataProviderError as exc:
             print("Scan failed: %s" % exc, file=sys.stderr)
             return 1
