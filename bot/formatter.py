@@ -5,6 +5,8 @@ MAX_MESSAGE_LENGTH = 4096
 
 _DIRECTION_EMOJI = {"bullish": "\U0001F7E2", "bearish": "\U0001F534"}  # 🟢 / 🔴
 _RANGE_EMOJI = "⚪"  # ⚪
+_DIRECTION_LABEL = {"bullish": "صعودی", "bearish": "نزولی"}
+_CONFIRMATION_LABEL = {"momentum candle": "کندل ممنتوم", "engulfing candle": "کندل انگالف"}
 
 
 def _fmt_price(value):
@@ -13,21 +15,25 @@ def _fmt_price(value):
 
 def format_signal_block(result):
     emoji = _DIRECTION_EMOJI.get(result.direction, _RANGE_EMOJI)
+    label = _DIRECTION_LABEL.get(result.direction, result.direction)
     signal = result.signal
+    confirmation_label = _CONFIRMATION_LABEL.get(signal.confirmation_type, signal.confirmation_type)
     return "\n".join(
         [
-            "%s %s | %s" % (emoji, result.symbol, result.direction),
-            "FVG timeframe: %s" % result.fvg_timeframe,
-            "Confirmation: %s" % signal.confirmation_type,
-            "Entry: %s" % _fmt_price(signal.entry),
-            "Stop loss: %s" % _fmt_price(signal.stop_loss),
-            "Target (1:3): %s" % _fmt_price(signal.target),
+            "%s %s | %s" % (emoji, result.symbol, label),
+            "تایم‌فریم FVG: %s" % result.fvg_timeframe,
+            "محدوده FVG: %s تا %s" % (_fmt_price(signal.fvg_low), _fmt_price(signal.fvg_high)),
+            "تأیید: %s" % confirmation_label,
+            "زمان کندل تأییدی: %s" % signal.confirmation_timestamp,
+            "ورود: %s" % _fmt_price(signal.entry),
+            "حد ضرر: %s" % _fmt_price(signal.stop_loss),
+            "تارگت (1:3): %s" % _fmt_price(signal.target),
         ]
     )
 
 
 def format_range_line(result):
-    return "%s %s in range, no confirmation yet" % (_RANGE_EMOJI, result.symbol)
+    return "%s %s در محدوده، تأییدی نیومده" % (_RANGE_EMOJI, result.symbol)
 
 
 def format_result(result):

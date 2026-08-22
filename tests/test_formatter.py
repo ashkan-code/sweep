@@ -15,7 +15,10 @@ def _signal_result(symbol="SYMBOL-1", direction="bullish"):
         symbol=symbol,
         direction=direction,
         fvg_timeframe="15m",
+        fvg_low=1.15,
+        fvg_high=1.22,
         confirmation_type="momentum candle",
+        confirmation_timestamp=360,
         entry=1.2345,
         stop_loss=1.2,
         target=1.3035,
@@ -31,12 +34,14 @@ class TestFormatSignalBlock(unittest.TestCase):
     def test_exact_text(self):
         block = format_signal_block(_signal_result())
         expected = (
-            "\U0001F7E2 SYMBOL-1 | bullish\n"
-            "FVG timeframe: 15m\n"
-            "Confirmation: momentum candle\n"
-            "Entry: 1.2345\n"
-            "Stop loss: 1.2\n"
-            "Target (1:3): 1.3035"
+            "\U0001F7E2 SYMBOL-1 | صعودی\n"
+            "تایم‌فریم FVG: 15m\n"
+            "محدوده FVG: 1.15 تا 1.22\n"
+            "تأیید: کندل ممنتوم\n"
+            "زمان کندل تأییدی: 360\n"
+            "ورود: 1.2345\n"
+            "حد ضرر: 1.2\n"
+            "تارگت (1:3): 1.3035"
         )
         self.assertEqual(block, expected)
 
@@ -44,7 +49,7 @@ class TestFormatSignalBlock(unittest.TestCase):
 class TestFormatRangeLine(unittest.TestCase):
     def test_exact_text(self):
         line = format_range_line(_range_result())
-        self.assertEqual(line, "⚪ SYMBOL-2 in range, no confirmation yet")
+        self.assertEqual(line, "⚪ SYMBOL-2 در محدوده، تأییدی نیومده")
 
 
 class TestSplitIntoMessages(unittest.TestCase):

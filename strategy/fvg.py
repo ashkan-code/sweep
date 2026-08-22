@@ -39,6 +39,12 @@ def detect_fvgs(candles, direction, timeframe):
         if not impulsive_ok:
             continue
 
+        # Guaranteed by the gap checks above (c1.high < c3.low for
+        # bullish, c1.low > c3.high for bearish) -- verified explicitly
+        # since every downstream stop-loss/target calculation depends
+        # on this ordering never being reversed.
+        assert gap_low < gap_high
+
         zones.append(
             FVGZone(
                 start_idx=i,

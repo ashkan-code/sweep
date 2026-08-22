@@ -5,6 +5,7 @@ It never prints or otherwise performs I/O beyond calling the provider —
 it just returns data, so it stays fully testable with a fake provider.
 """
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
@@ -12,6 +13,8 @@ from typing import NamedTuple, Optional
 from data_provider.provider import DataProviderError
 from strategy import confirmation, fvg, liquidity, swings
 from strategy import trend as trend_module
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TOP_SYMBOLS_LIMIT = 200
 DEFAULT_TREND_TIMEFRAMES = ["4h", "1h"]
@@ -26,7 +29,10 @@ class SignalOutput:
     symbol: str
     direction: str
     fvg_timeframe: str
+    fvg_low: float
+    fvg_high: float
     confirmation_type: str
+    confirmation_timestamp: int
     entry: Optional[float] = None
     stop_loss: Optional[float] = None
     target: Optional[float] = None
@@ -133,6 +139,14 @@ def _scan_one(provider, symbol, timeframe, direction, config):
     signal = _build_signal(
         symbol, direction, timeframe, candles[entry_result.candle_idx], target_fvg, confirmation_type, config
     )
+    if not _signal_is_consistent(signal):
+        logger.warning(
+            "dropping inconsistent signal for %s %s %s: entry=%s stop_loss=%s target=%s "
+            "(fvg=[%s, %s])",
+            symbol, direction, timeframe, signal.entry, signal.stop_loss, signal.target,
+            signal.fvg_low, signal.fvg_high,
+        )
+        return None
     return ScanResult("signal", symbol, direction, timeframe, signal)
 
 
@@ -141,7 +155,10 @@ def _build_signal(symbol, direction, timeframe, confirmation_candle, fvg_zone, c
         symbol=symbol,
         direction=direction,
         fvg_timeframe=timeframe,
+        fvg_low=fvg_zone.low,
+        fvg_high=fvg_zone.high,
         confirmation_type=confirmation_type,
+        confirmation_timestamp=confirmation_candle.timestamp,
     )
     buffer = _compute_stop_buffer(fvg_zone, config)
     entry = confirmation_candle.close
@@ -155,6 +172,17 @@ def _build_signal(symbol, direction, timeframe, confirmation_candle, fvg_zone, c
     signal.stop_loss = stop_loss
     signal.target = target
     return signal
+
+
+def _signal_is_consistent(signal):
+    """Sanity check every signal must satisfy before it's ever returned:
+    bullish needs stop_loss < entry < target, bearish the mirror. A
+    violation (e.g. the confirmation candle's price having drifted far
+    from the FVG zone by the time it fired) means the signal is not
+    safe to act on and must be dropped rather than shown."""
+    if signal.direction == "bullish":
+        return signal.stop_loss < signal.entry < signal.target
+    return signal.stop_loss > signal.entry > signal.target
 
 
 def _compute_stop_buffer(fvg_zone, config):

@@ -30,6 +30,16 @@ SIGNAL_15M = [
 # candle afterward -> stays "range".
 RANGE_15M = SIGNAL_15M[:6]
 
+# Same funnel through BOS/FVG formation (zone stays [13, 16]), but the
+# final candle -- the one that ends up as the confirmation candle per
+# the "must be the last candle" rule -- has drifted far below the zone
+# instead of continuing the bounce. It's still a valid momentum candle
+# (aligned bullish, body_ratio > 0.7), so without the consistency check
+# this would produce entry=5.8 with stop_loss=12.5 (fvg.low - buffer),
+# i.e. stop_loss > entry for a "bullish" signal -- the exact bug seen
+# live on COMPUSDT.
+DISCONNECTED_ENTRY_15M = SIGNAL_15M[:6] + [(4, 6, 3.8, 5.8)]
+
 
 class _FakeProvider:
     def __init__(self, symbols, candles_by_key, fail_symbols=()):
@@ -68,9 +78,16 @@ class TestRunScan(unittest.TestCase):
         self.assertEqual(signal_result.fvg_timeframe, "15m")
         signal = signal_result.signal
         self.assertEqual(signal.confirmation_type, "momentum candle")
+        self.assertEqual(signal.fvg_low, 13)
+        self.assertEqual(signal.fvg_high, 16)
+        self.assertEqual(signal.confirmation_timestamp, 6 * 60)  # candle index 6
         self.assertEqual(signal.entry, 24)
         self.assertEqual(signal.stop_loss, 12.5)  # fvg.low(13) - buffer(0.5)
         self.assertEqual(signal.target, 58.5)  # entry + 3*(entry - stop_loss)
+
+        # The stop loss must sit strictly outside the FVG zone, not
+        # just satisfy the entry/target formula.
+        self.assertLess(signal.stop_loss, signal.fvg_low)
 
         self.assertIn("SYMBOL-2", by_symbol)
         range_result = by_symbol["SYMBOL-2"]
@@ -83,6 +100,26 @@ class TestRunScan(unittest.TestCase):
     def test_invalid_direction_raises(self):
         with self.assertRaises(ValueError):
             run_scan("sideways", self.provider, CONFIG)
+
+
+class TestDisconnectedEntryIsDropped(unittest.TestCase):
+    """Reproduces the COMPUSDT bug: a bullish setup whose confirmation
+    candle has drifted far below the FVG zone must never be returned as
+    a signal, even though it independently satisfies every earlier
+    pipeline stage."""
+
+    def setUp(self):
+        symbols = ["SYMBOL-5"]
+        candles_by_key = {
+            ("SYMBOL-5", "4h"): make_candles(ZIGZAG),
+            ("SYMBOL-5", "15m"): make_candles(DISCONNECTED_ENTRY_15M),
+        }
+        self.provider = _FakeProvider(symbols, candles_by_key)
+
+    def test_inconsistent_signal_is_dropped_not_returned(self):
+        with self.assertLogs("strategy.engine", level="WARNING"):
+            results = run_scan("bullish", self.provider, CONFIG)
+        self.assertEqual(results, [])
 
 
 if __name__ == "__main__":

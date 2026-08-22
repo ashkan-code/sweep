@@ -73,5 +73,20 @@ class TestDetectFvgsInvalidDirection(unittest.TestCase):
             detect_fvgs(candles, "sideways", "15m")
 
 
+class TestZoneLowLessThanHigh(unittest.TestCase):
+    """Downstream stop-loss/target math assumes zone.low < zone.high
+    unconditionally, for both directions."""
+
+    def test_bullish_zone_low_less_than_high(self):
+        zones = detect_fvgs(make_candles(BULLISH_BASE), "bullish", "15m")
+        self.assertEqual(len(zones), 1)
+        self.assertLess(zones[0].low, zones[0].high)
+
+    def test_bearish_zone_low_less_than_high(self):
+        zones = detect_fvgs(make_candles(BEARISH_BASE), "bearish", "15m")
+        self.assertEqual(len(zones), 1)
+        self.assertLess(zones[0].low, zones[0].high)
+
+
 if __name__ == "__main__":
     unittest.main()
