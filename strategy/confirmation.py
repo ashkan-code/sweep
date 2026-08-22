@@ -32,6 +32,9 @@ def is_engulfing_candle(candle, previous, direction):
 
 
 def find_confirmation(candles, fvg, direction, config, search_start_idx):
+    """A signal is only "fresh" if the confirmation candle is the most
+    recent candle available -- otherwise price has had time to move
+    since that candle closed, and the setup is stale."""
     body_ratio_threshold = config.get("momentum_body_ratio", DEFAULT_MOMENTUM_BODY_RATIO)
 
     zone_entry_idx = -1
@@ -43,12 +46,12 @@ def find_confirmation(candles, fvg, direction, config, search_start_idx):
     if zone_entry_idx == -1:
         return EntryResult("none", -1)
 
-    for i in range(zone_entry_idx, len(candles)):
-        c = candles[i]
-        if is_momentum_candle(c, direction, body_ratio_threshold):
-            return EntryResult("signal", i)
-        if i > 0 and is_engulfing_candle(c, candles[i - 1], direction):
-            return EntryResult("signal", i)
+    last_idx = len(candles) - 1
+    last_candle = candles[last_idx]
+    if is_momentum_candle(last_candle, direction, body_ratio_threshold):
+        return EntryResult("signal", last_idx)
+    if last_idx > 0 and is_engulfing_candle(last_candle, candles[last_idx - 1], direction):
+        return EntryResult("signal", last_idx)
     return EntryResult("range", zone_entry_idx)
 
 

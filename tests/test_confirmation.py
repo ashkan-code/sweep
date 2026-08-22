@@ -31,6 +31,17 @@ NO_ZONE_ENTRY_CANDLES = [
     (93, 94, 92, 93.5),
 ]
 
+# A momentum candle appears at idx3, but it's stale -- irrelevant candles
+# follow it, and the true last candle (idx5) is weak/non-confirming.
+CONFIRMATION_NOT_LAST_CANDLES = [
+    (95, 96, 94, 95.5),  # 0 outside the zone
+    (101, 103, 100.5, 101.5),  # 1 zone entry, weak candle
+    (101.5, 102, 101, 101.6),  # 2 filler, weak
+    (101, 110, 100, 109),  # 3 momentum candle -- but not the last candle below
+    (109, 110, 108, 108.5),  # 4 irrelevant filler after
+    (108.5, 109, 107, 107.8),  # 5 irrelevant filler, weak/non-confirming -- the actual last candle
+]
+
 
 class TestFindConfirmation(unittest.TestCase):
     def test_momentum_candle_is_a_signal(self):
@@ -64,6 +75,17 @@ class TestFindConfirmation(unittest.TestCase):
         result = find_confirmation(candles, ZONE, "bullish", CONFIG, search_start_idx=100)
         self.assertEqual(result.kind, "none")
         self.assertEqual(result.candle_idx, -1)
+
+    def test_stale_momentum_candle_not_the_last_candle_is_range(self):
+        candles = make_candles(CONFIRMATION_NOT_LAST_CANDLES)
+        result = find_confirmation(candles, ZONE, "bullish", CONFIG, search_start_idx=0)
+        self.assertEqual(result.kind, "range")
+
+    def test_momentum_candle_that_is_the_last_candle_is_a_signal(self):
+        candles = make_candles(CONFIRMATION_NOT_LAST_CANDLES[:4])  # truncated so idx3 is last
+        result = find_confirmation(candles, ZONE, "bullish", CONFIG, search_start_idx=0)
+        self.assertEqual(result.kind, "signal")
+        self.assertEqual(result.candle_idx, 3)
 
 
 if __name__ == "__main__":
