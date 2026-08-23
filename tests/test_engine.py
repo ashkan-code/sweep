@@ -14,31 +14,38 @@ CONFIG = {
 
 # Full bullish funnel on the 15m timeframe: swing high @ idx1 (price 12),
 # sweep (bearish wick above 12) @ idx3, BOS (close back above 12) + FVG
-# impulsive candle @ idx4, FVG gap [13, 16] closed by idx3/idx5, zone
-# re-entered @ idx5, momentum confirmation candle @ idx6.
+# impulsive candle @ idx4, FVG gap [13, 16] formed at idx3/5. idx6/7 are
+# the FVG's two required validation candles (fvg.py rejects the gap
+# until both exist and neither's real body closes back into it) -- both
+# wick into the zone (idx6 doubles as the confirmation zone-entry) but
+# keep their bodies above gap_high=16, so the gap stays valid. idx8 is
+# the momentum confirmation candle -- outside the validation window, so
+# its body freely re-entering the gap doesn't invalidate anything.
 SIGNAL_15M = [
     (9.5, 10, 9, 9.8),  # 0
     (11, 12, 11, 11.5),  # 1 swing high 12
     (11.5, 11.8, 10, 10.5),  # 2
     (11, 13, 10.5, 10.8),  # 3 sweep + FVG c1 (high=13)
     (11, 19, 10.5, 18),  # 4 BOS + FVG c2 (impulsive, closes 18 > gap_high 16)
-    (17, 20, 16, 19),  # 5 FVG c3 (low=16); zone re-entry, not confirmed
-    (15, 25, 14, 24),  # 6 momentum confirmation candle
+    (17, 20, 16, 19),  # 5 FVG c3 (low=16)
+    (18, 20, 12, 19),  # 6 FVG validation 1 + zone re-entry (wick only, body [18,19] stays above 16)
+    (19, 21, 18.5, 20),  # 7 FVG validation 2 (body [19,20] stays above 16), not yet confirmed
+    (15, 25, 14, 24),  # 8 momentum confirmation candle (last candle)
 ]
 
-# Same funnel through BOS/FVG formation, but without a confirmation
-# candle afterward -> stays "range".
-RANGE_15M = SIGNAL_15M[:6]
+# Same funnel through BOS/FVG formation and validation, but without a
+# confirmation candle afterward -> stays "range".
+RANGE_15M = SIGNAL_15M[:8]
 
-# Same funnel through BOS/FVG formation (zone stays [13, 16]), but the
-# final candle -- the one that ends up as the confirmation candle per
-# the "must be the last candle" rule -- has drifted far below the zone
-# instead of continuing the bounce. It's still a valid momentum candle
-# (aligned bullish, body_ratio > 0.7), so without the consistency check
-# this would produce entry=5.8 with stop_loss=12.5 (fvg.low - buffer),
-# i.e. stop_loss > entry for a "bullish" signal -- the exact bug seen
-# live on COMPUSDT.
-DISCONNECTED_ENTRY_15M = SIGNAL_15M[:6] + [(4, 6, 3.8, 5.8)]
+# Same funnel through BOS/FVG formation and validation (zone stays
+# [13, 16]), but the final candle -- the one that ends up as the
+# confirmation candle per the "must be the last candle" rule -- has
+# drifted far below the zone instead of continuing the bounce. It's
+# still a valid momentum candle (aligned bullish, body_ratio > 0.7), so
+# without the consistency check this would produce entry=5.8 with
+# stop_loss=12.5 (fvg.low - buffer), i.e. stop_loss > entry for a
+# "bullish" signal -- the exact bug seen live on COMPUSDT.
+DISCONNECTED_ENTRY_15M = SIGNAL_15M[:8] + [(4, 6, 3.8, 5.8)]
 
 
 class _FakeProvider:
@@ -80,7 +87,7 @@ class TestRunScan(unittest.TestCase):
         self.assertEqual(signal.confirmation_type, "momentum candle")
         self.assertEqual(signal.fvg_low, 13)
         self.assertEqual(signal.fvg_high, 16)
-        self.assertEqual(signal.confirmation_timestamp, 6 * 60)  # candle index 6
+        self.assertEqual(signal.confirmation_timestamp, 8 * 60)  # candle index 8
         self.assertEqual(signal.entry, 24)
         self.assertEqual(signal.stop_loss, 12.5)  # fvg.low(13) - buffer(0.5)
         self.assertEqual(signal.target, 58.5)  # entry + 3*(entry - stop_loss)

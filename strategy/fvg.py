@@ -14,10 +14,25 @@ class FVGZone:
     timeframe: str
 
 
+def _body_intrudes(candle, gap_low, gap_high):
+    """True if the candle's real body (min/max of open and close -- not
+    its high/low wick) overlaps the gap at all."""
+    return candle.body_high > gap_low and candle.body_low < gap_high
+
+
 def detect_fvgs(candles, direction, timeframe):
     """3-candle FVG: a gap between candle i and i+2, where candle i+1 is
     the same color as `direction` and its close extends beyond the gap
-    range (true displacement, not just a small overlap)."""
+    range (true displacement, not just a small overlap).
+
+    A detected gap is only returned once the next two candles (i+3,
+    i+4) confirm it: if either candle's real body closes back into the
+    gap, the FVG is invalidated. A wick merely dipping into the gap
+    doesn't invalidate it -- only the body does. If those two candles
+    aren't in the data yet, the FVG isn't confirmed either way and is
+    skipped for now (a later scan, once more candles exist, re-checks
+    it), never accepted unconfirmed.
+    """
     if direction not in ("bullish", "bearish"):
         raise ValueError("direction must be 'bullish' or 'bearish', got %r" % (direction,))
 
@@ -44,6 +59,12 @@ def detect_fvgs(candles, direction, timeframe):
         # since every downstream stop-loss/target calculation depends
         # on this ordering never being reversed.
         assert gap_low < gap_high
+
+        validation_indices = (i + 3, i + 4)
+        if any(idx >= len(candles) for idx in validation_indices):
+            continue  # not enough data yet to confirm -- re-checked next scan
+        if any(_body_intrudes(candles[idx], gap_low, gap_high) for idx in validation_indices):
+            continue  # invalidated: a later candle's body closed back into the gap
 
         zones.append(
             FVGZone(
